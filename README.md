@@ -52,7 +52,7 @@ This starts the Vite dev server, the FastAPI backend, and Electron simultaneousl
 npm run build
 ```
 
-Produces a distributable `.exe` (Windows) inside the `dist/` folder.
+Produces a distributable `.exe` (Windows) inside the `release/` folder.
 
 ## Project Structure
 
@@ -71,7 +71,7 @@ desktop-sql-ide/
 
 ## Security
 
-- Database passwords are encrypted before being stored locally using the system keychain via `keytar`.
+- Database passwords are encrypted using Fernet symmetric encryption and stored locally in the app-data directory. They are never written to disk in plain text.
 - The backend only listens on `localhost`; no ports are exposed externally.
 
 ## Future Enhancements
