@@ -1,0 +1,1065 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SQL IDE — Browser Edition</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            bg: { DEFAULT: '#1e1e2e', surface: '#181825', overlay: '#313244' },
+            border: '#45475a',
+            text: { DEFAULT: '#cdd6f4', muted: '#6c7086', accent: '#89b4fa' },
+            green: { sql: '#a6e3a1' },
+            red: { sql: '#f38ba8' },
+            yellow: { sql: '#f9e2af' },
+            blue: { sql: '#89b4fa' },
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    * { box-sizing: border-box; }
+    body { background: #1e1e2e; color: #cdd6f4; font-family: 'Segoe UI', system-ui, sans-serif; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #181825; }
+    ::-webkit-scrollbar-thumb { background: #45475a; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #585b70; }
+
+    /* Tab styles */
+    .tab { display: flex; align-items: center; gap: 6px; padding: 6px 14px; font-size: 13px;
+      background: #313244; border-radius: 6px 6px 0 0; cursor: pointer; border: 1px solid #45475a;
+      border-bottom: none; white-space: nowrap; color: #6c7086; transition: color .15s; }
+    .tab.active { background: #1e1e2e; color: #cdd6f4; border-bottom: 1px solid #1e1e2e; margin-bottom: -1px; }
+    .tab:hover:not(.active) { color: #cdd6f4; }
+    .tab .close-btn { font-size: 15px; line-height: 1; opacity: 0; transition: opacity .15s; padding: 0 2px; }
+    .tab:hover .close-btn { opacity: 1; }
+
+    /* Grid result table */
+    .result-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+    .result-table th { background: #313244; color: #89b4fa; padding: 6px 12px; text-align: left;
+      border: 1px solid #45475a; position: sticky; top: 0; cursor: pointer; user-select: none; white-space: nowrap; }
+    .result-table th:hover { background: #3d3f52; }
+    .result-table td { padding: 5px 12px; border: 1px solid #313244; color: #cdd6f4; white-space: nowrap; max-width: 320px;
+      overflow: hidden; text-overflow: ellipsis; }
+    .result-table tr:nth-child(even) td { background: #1e1e2e; }
+    .result-table tr:nth-child(odd) td { background: #181825; }
+    .result-table tr:hover td { background: #313244 !important; }
+
+    /* Schema tree */
+    .schema-item { padding: 4px 8px; font-size: 13px; cursor: pointer; border-radius: 4px;
+      display: flex; align-items: center; gap: 6px; user-select: none; }
+    .schema-item:hover { background: #313244; }
+    .schema-item.active { background: #3d3f52; }
+
+    /* Split panel resize */
+    #resizer { cursor: row-resize; background: #45475a; height: 4px; flex-shrink: 0; }
+    #resizer:hover, #resizer.dragging { background: #89b4fa; }
+
+    /* Status bar */
+    #status-bar { font-size: 12px; padding: 3px 12px; background: #181825;
+      border-top: 1px solid #45475a; display: flex; gap: 16px; align-items: center; color: #6c7086; }
+
+    /* Notifications */
+    #notif { position: fixed; bottom: 32px; right: 24px; z-index: 9999;
+      display: flex; flex-direction: column; gap: 8px; }
+    .notif-msg { padding: 10px 18px; border-radius: 8px; font-size: 13px; font-weight: 500;
+      box-shadow: 0 4px 16px #0006; animation: slideIn .2s ease; }
+    .notif-msg.success { background: #a6e3a1; color: #1e1e2e; }
+    .notif-msg.error   { background: #f38ba8; color: #1e1e2e; }
+    .notif-msg.info    { background: #89b4fa; color: #1e1e2e; }
+    @keyframes slideIn { from { transform: translateX(40px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+    /* Monaco container */
+    #monaco-editor { width: 100%; height: 100%; }
+
+    /* Spinner */
+    .spinner { width: 18px; height: 18px; border: 2px solid #45475a; border-top-color: #89b4fa;
+      border-radius: 50%; animation: spin .7s linear infinite; display: inline-block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Sidebar resize */
+    #sidebar-resizer { cursor: col-resize; background: #45475a; width: 4px; flex-shrink: 0; }
+    #sidebar-resizer:hover, #sidebar-resizer.dragging { background: #89b4fa; }
+
+    /* Dialog */
+    .dialog-backdrop { position: fixed; inset: 0; background: #0009; z-index: 1000; display: flex;
+      align-items: center; justify-content: center; }
+    .dialog { background: #181825; border: 1px solid #45475a; border-radius: 10px; padding: 24px;
+      min-width: 340px; max-width: 480px; width: 90%; box-shadow: 0 8px 40px #0008; }
+    .dialog h2 { font-size: 16px; font-weight: 600; margin-bottom: 18px; color: #89b4fa; }
+    .dialog label { font-size: 12px; color: #6c7086; display: block; margin-bottom: 4px; }
+    .dialog input, .dialog select { width: 100%; background: #313244; border: 1px solid #45475a;
+      border-radius: 6px; padding: 8px 10px; color: #cdd6f4; font-size: 13px; margin-bottom: 14px; outline: none; }
+    .dialog input:focus, .dialog select:focus { border-color: #89b4fa; }
+
+    /* Buttons */
+    .btn { padding: 7px 16px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer;
+      border: none; transition: opacity .15s; }
+    .btn-primary { background: #89b4fa; color: #1e1e2e; }
+    .btn-primary:hover { opacity: .85; }
+    .btn-secondary { background: #313244; color: #cdd6f4; border: 1px solid #45475a; }
+    .btn-secondary:hover { background: #3d3f52; }
+    .btn-danger { background: #f38ba8; color: #1e1e2e; }
+    .btn-danger:hover { opacity: .85; }
+
+    /* Filter input */
+    .filter-input { background: #313244; border: 1px solid #45475a; border-radius: 5px;
+      padding: 4px 10px; color: #cdd6f4; font-size: 12px; outline: none; width: 200px; }
+    .filter-input:focus { border-color: #89b4fa; }
+  </style>
+</head>
+<body class="h-full flex flex-col" style="height:100vh; overflow:hidden;">
+
+<!-- ============================================================ TOP BAR ============================================================ -->
+<div id="topbar" style="background:#181825; border-bottom:1px solid #45475a; display:flex; align-items:center; gap:8px; padding:6px 12px; flex-shrink:0; height:48px;">
+  <!-- Logo -->
+  <div style="display:flex;align-items:center;gap:8px;margin-right:8px;">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#89b4fa" stroke-width="2">
+      <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4.03 3-9 3S3 13.66 3 12"/>
+      <path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/>
+    </svg>
+    <span style="font-weight:700;font-size:15px;color:#89b4fa;letter-spacing:.5px;">SQL IDE</span>
+  </div>
+
+  <!-- DB Connection button -->
+  <button class="btn btn-secondary" onclick="openConnectDialog()" title="Connect to database" style="display:flex;align-items:center;gap:6px;">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+    </svg>
+    <span id="conn-label">Connect</span>
+  </button>
+
+  <!-- New Tab -->
+  <button class="btn btn-secondary" onclick="newTab()" title="New tab (Ctrl+T)" style="display:flex;align-items:center;gap:4px;">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+    </svg>
+    New Tab
+  </button>
+
+  <!-- Run button -->
+  <button class="btn btn-primary" onclick="runQuery()" id="run-btn" title="Run query (Ctrl+Enter)" style="display:flex;align-items:center;gap:6px;">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+    Run
+  </button>
+
+  <!-- Spacer -->
+  <div style="flex:1;"></div>
+
+  <!-- Export buttons -->
+  <button class="btn btn-secondary" onclick="exportCSV()" title="Export results as CSV" style="display:flex;align-items:center;gap:4px;">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+      <polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/>
+    </svg>
+    CSV
+  </button>
+  <button class="btn btn-secondary" onclick="exportJSON()" title="Export results as JSON" style="display:flex;align-items:center;gap:4px;">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+      <polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/>
+    </svg>
+    JSON
+  </button>
+
+  <!-- History toggle -->
+  <button class="btn btn-secondary" onclick="toggleHistory()" id="hist-btn" title="Query history" style="display:flex;align-items:center;gap:4px;">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <polyline points="1,4 1,10 7,10"/><path d="M3.51 15a9 9 0 1 0 .49-4.74L1 10"/>
+    </svg>
+    History
+  </button>
+
+  <!-- Sample DB button -->
+  <button class="btn btn-secondary" onclick="loadSampleDB()" title="Load a sample SQLite database" style="display:flex;align-items:center;gap:4px;">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/>
+      <line x1="12" y1="17" x2="12" y2="21"/>
+    </svg>
+    Sample DB
+  </button>
+
+  <!-- Upload DB -->
+  <label class="btn btn-secondary" title="Open SQLite .db file" style="display:flex;align-items:center;gap:4px;cursor:pointer;margin:0;">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+      <polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/>
+    </svg>
+    Open DB
+    <input type="file" accept=".db,.sqlite,.sqlite3" onchange="openDBFile(event)" style="display:none;"/>
+  </label>
+</div>
+
+<!-- ============================================================ MAIN BODY ============================================================ -->
+<div style="display:flex; flex:1; overflow:hidden;">
+
+  <!-- SIDEBAR -->
+  <div id="sidebar" style="width:240px; background:#181825; border-right:1px solid #45475a; display:flex; flex-direction:column; overflow:hidden; flex-shrink:0;">
+    <div style="padding:10px 12px 6px; font-size:11px; font-weight:700; color:#6c7086; text-transform:uppercase; letter-spacing:.8px; display:flex; align-items:center; justify-content:between;">
+      <span style="flex:1;">Schema Explorer</span>
+      <button onclick="refreshSchema()" title="Refresh" style="background:none;border:none;cursor:pointer;color:#6c7086;padding:2px 4px;font-size:14px;" class="hover:text-white">↻</button>
+    </div>
+    <div style="padding:6px 8px;">
+      <input id="schema-filter" class="filter-input" style="width:100%;" placeholder="Filter tables..." oninput="filterSchema(this.value)" />
+    </div>
+    <div id="schema-tree" style="flex:1; overflow-y:auto; padding:4px 6px;">
+      <div style="color:#6c7086; font-size:13px; padding:12px 8px; text-align:center;">No database connected.<br/>Click <strong>Connect</strong> or <strong>Sample DB</strong>.</div>
+    </div>
+  </div>
+
+  <!-- SIDEBAR RESIZER -->
+  <div id="sidebar-resizer"></div>
+
+  <!-- CENTER PANEL: TABS + EDITOR + RESULTS -->
+  <div style="flex:1; display:flex; flex-direction:column; overflow:hidden;">
+
+    <!-- TAB BAR -->
+    <div id="tab-bar" style="display:flex; align-items:flex-end; padding:6px 8px 0; background:#181825; border-bottom:1px solid #45475a; overflow-x:auto; flex-shrink:0; min-height:38px; gap:4px;"></div>
+
+    <!-- EDITOR AREA -->
+    <div id="editor-area" style="flex:1; overflow:hidden; position:relative; min-height:80px;">
+      <div id="monaco-editor"></div>
+    </div>
+
+    <!-- RESIZER BETWEEN EDITOR AND RESULTS -->
+    <div id="resizer"></div>
+
+    <!-- RESULTS PANEL -->
+    <div id="results-panel" style="height:260px; display:flex; flex-direction:column; overflow:hidden; background:#1e1e2e;">
+      <!-- Results toolbar -->
+      <div style="display:flex; align-items:center; gap:8px; padding:6px 12px; background:#181825; border-bottom:1px solid #45475a; flex-shrink:0;">
+        <span style="font-size:12px; font-weight:600; color:#6c7086; text-transform:uppercase; letter-spacing:.5px;">Results</span>
+        <div id="result-meta" style="font-size:12px; color:#6c7086; flex:1;"></div>
+        <input id="result-filter" class="filter-input" placeholder="Filter results..." oninput="filterResults(this.value)" style="width:160px;" />
+        <div style="display:flex;gap:4px;">
+          <button class="btn btn-secondary" onclick="prevPage()" style="padding:3px 8px;font-size:12px;">‹ Prev</button>
+          <span id="page-info" style="font-size:12px;color:#6c7086;align-self:center;padding:0 4px;"></span>
+          <button class="btn btn-secondary" onclick="nextPage()" style="padding:3px 8px;font-size:12px;">Next ›</button>
+        </div>
+        <button class="btn btn-secondary" onclick="copyResults()" style="padding:3px 8px;font-size:12px;" title="Copy results to clipboard">Copy</button>
+      </div>
+      <!-- Results content -->
+      <div id="result-scroll" style="flex:1; overflow:auto;">
+        <div id="result-content" style="padding:0;"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- HISTORY PANEL -->
+  <div id="history-panel" style="width:0; background:#181825; border-left:1px solid #45475a; overflow:hidden; transition:width .2s; flex-shrink:0;">
+    <div style="padding:10px 12px 6px; font-size:11px; font-weight:700; color:#6c7086; text-transform:uppercase; letter-spacing:.8px; display:flex; align-items:center; justify-content:space-between; white-space:nowrap;">
+      <span>Query History</span>
+      <button onclick="toggleHistory()" style="background:none;border:none;cursor:pointer;color:#6c7086;font-size:14px;">✕</button>
+    </div>
+    <div id="history-list" style="overflow-y:auto; height:calc(100% - 36px); padding:4px 8px;"></div>
+  </div>
+</div>
+
+<!-- STATUS BAR -->
+<div id="status-bar">
+  <span id="sb-conn">⬤ Disconnected</span>
+  <span id="sb-time"></span>
+  <span id="sb-rows"></span>
+  <span id="sb-cursor"></span>
+  <div style="flex:1;"></div>
+  <span style="color:#45475a;">SQL IDE — Browser Edition</span>
+</div>
+
+<!-- NOTIFICATIONS -->
+<div id="notif"></div>
+
+<!-- ============================================================ CONNECT DIALOG ============================================================ -->
+<div id="connect-dialog" class="dialog-backdrop" style="display:none;">
+  <div class="dialog">
+    <h2>Connect to Database</h2>
+    <label>Database Type</label>
+    <select id="db-type" onchange="onDBTypeChange()">
+      <option value="sqlite_memory">SQLite (In-Memory)</option>
+      <option value="sqlite_file">SQLite (File Upload)</option>
+    </select>
+    <div id="file-row" style="display:none;">
+      <label>SQLite File</label>
+      <label class="btn btn-secondary" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;width:100%;margin-bottom:14px;font-size:13px;">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+        <span id="file-label">Choose .db file…</span>
+        <input type="file" id="file-input" accept=".db,.sqlite,.sqlite3" onchange="onFileChosen(event)" style="display:none;" />
+      </label>
+    </div>
+    <div id="conn-note" style="font-size:12px;color:#6c7086;margin-bottom:14px;display:none;">
+      ℹ️ This browser-based IDE supports SQLite databases.<br/>
+      Your data stays local — nothing is sent to a server.
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-secondary" onclick="closeConnectDialog()">Cancel</button>
+      <button class="btn btn-primary" onclick="doConnect()">Connect</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ SCRIPTS ============================================================ -->
+<!-- sql.js (SQLite via WebAssembly) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/sql-wasm.js"
+  integrity="sha512-UBCBHDRxz4q7uKbFBqKxCiJQAiByZS4UxWBjREhUgPYn4RbAHvCpXSC3lxNKcGlmEXWEVLNHHBHWoVkfFZPQ=="
+  crossorigin="anonymous"></script>
+<!-- Monaco Editor loader -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.47.0/min/vs/loader.min.js"
+  crossorigin="anonymous"></script>
+
+<script>
+/* =========================================================================
+   STATE
+   ========================================================================= */
+let SQL = null;           // sql.js namespace
+let db = null;            // active SQLite DB instance
+let connectedDBName = ''; // display name for connected db
+
+let tabs = [];            // [{id, name, model, state}]
+let activeTabId = null;
+
+let lastResults = [];     // [{columns:[], rows:[[]]}]
+let lastColumns = [];
+let lastRows = [];
+let filteredRows = [];
+let sortCol = -1;
+let sortDir = 1;          // 1=asc, -1=desc
+let currentPage = 0;
+const PAGE_SIZE = 100;
+let filterText = '';
+
+let history = [];         // [{sql, ts, duration}]
+let historyOpen = false;
+
+let pendingFileBuffer = null; // ArrayBuffer from file chooser in connect dialog
+
+let monacoReady = false;
+let monacoEditor = null;
+let tabIdCounter = 0;
+
+/* =========================================================================
+   INIT — sql.js + Monaco
+   ========================================================================= */
+async function initSQLjs() {
+  SQL = await initSqlJs({
+    locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/${file}`
+  });
+  notify('sql.js loaded — ready for SQLite', 'info', 2500);
+}
+
+function initMonaco() {
+  require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.47.0/min/vs' } });
+  require(['vs/editor/editor.main'], function () {
+    monacoReady = true;
+
+    // Register SQL language completions
+    monaco.languages.registerCompletionItemProvider('sql', {
+      provideCompletionItems(model, position) {
+        const word = model.getWordUntilPosition(position);
+        const range = {
+          startLineNumber: position.lineNumber, endLineNumber: position.lineNumber,
+          startColumn: word.startColumn, endColumn: word.endColumn,
+        };
+        const keywords = ['SELECT', 'FROM', 'WHERE', 'INSERT', 'INTO', 'VALUES', 'UPDATE', 'SET',
+          'DELETE', 'CREATE', 'TABLE', 'DROP', 'ALTER', 'ADD', 'COLUMN', 'INDEX', 'VIEW',
+          'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER', 'ON', 'GROUP BY', 'ORDER BY', 'HAVING',
+          'LIMIT', 'OFFSET', 'DISTINCT', 'AS', 'AND', 'OR', 'NOT', 'IN', 'IS', 'NULL', 'LIKE',
+          'BETWEEN', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'COUNT', 'SUM', 'AVG', 'MAX', 'MIN',
+          'UPPER', 'LOWER', 'LENGTH', 'SUBSTR', 'TRIM', 'REPLACE', 'COALESCE', 'CAST', 'TYPEOF',
+          'PRIMARY KEY', 'FOREIGN KEY', 'REFERENCES', 'UNIQUE', 'NOT NULL', 'DEFAULT', 'CHECK',
+          'INTEGER', 'TEXT', 'REAL', 'BLOB', 'NUMERIC', 'BOOLEAN', 'AUTOINCREMENT', 'PRAGMA'];
+        const tableSuggestions = getTableNames().map(t => ({
+          label: t, kind: monaco.languages.CompletionItemKind.Class, insertText: t, range,
+        }));
+        const colSuggestions = getAllColumnNames().map(c => ({
+          label: c, kind: monaco.languages.CompletionItemKind.Field, insertText: c, range,
+        }));
+        const kwSuggestions = keywords.map(k => ({
+          label: k, kind: monaco.languages.CompletionItemKind.Keyword,
+          insertText: k, range,
+        }));
+        return { suggestions: [...kwSuggestions, ...tableSuggestions, ...colSuggestions] };
+      }
+    });
+
+    // Create initial tab
+    newTab();
+
+    // Resize observer
+    const ro = new ResizeObserver(() => monacoEditor && monacoEditor.layout());
+    ro.observe(document.getElementById('editor-area'));
+  });
+}
+
+/* =========================================================================
+   TABS
+   ========================================================================= */
+function newTab(name) {
+  const id = ++tabIdCounter;
+  const model = monaco.editor.createModel('-- Write your SQL query here\nSELECT 1;', 'sql');
+  const tabName = name || `Query ${id}`;
+  tabs.push({ id, name: tabName, model, state: null });
+
+  if (!monacoEditor) {
+    monacoEditor = monaco.editor.create(document.getElementById('monaco-editor'), {
+      model,
+      theme: 'vs-dark',
+      language: 'sql',
+      fontSize: 14,
+      lineNumbers: 'on',
+      minimap: { enabled: false },
+      scrollBeyondLastLine: false,
+      automaticLayout: false,
+      wordWrap: 'on',
+      suggestOnTriggerCharacters: true,
+      quickSuggestions: true,
+      tabSize: 2,
+      renderLineHighlight: 'all',
+    });
+
+    // Ctrl+Enter = run
+    monacoEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => runQuery());
+    // Ctrl+T = new tab
+    monacoEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyT, () => newTab());
+    // Ctrl+W = close tab
+    monacoEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyW, () => closeTab(activeTabId));
+
+    monacoEditor.onDidChangeCursorPosition(e => {
+      document.getElementById('sb-cursor').textContent =
+        `Ln ${e.position.lineNumber}, Col ${e.position.column}`;
+    });
+  } else {
+    // Save current state
+    const cur = tabs.find(t => t.id === activeTabId);
+    if (cur) cur.state = monacoEditor.saveViewState();
+    monacoEditor.setModel(model);
+  }
+
+  activateTab(id);
+  renderTabBar();
+  if (monacoEditor) monacoEditor.focus();
+  return id;
+}
+
+function activateTab(id) {
+  const cur = tabs.find(t => t.id === activeTabId);
+  if (cur && monacoEditor) cur.state = monacoEditor.saveViewState();
+
+  activeTabId = id;
+  const tab = tabs.find(t => t.id === id);
+  if (!tab || !monacoEditor) return;
+  monacoEditor.setModel(tab.model);
+  if (tab.state) monacoEditor.restoreViewState(tab.state);
+  monacoEditor.focus();
+  renderTabBar();
+}
+
+function closeTab(id) {
+  if (tabs.length === 1) { notify('Cannot close last tab', 'error'); return; }
+  const idx = tabs.findIndex(t => t.id === id);
+  tabs[idx].model.dispose();
+  tabs.splice(idx, 1);
+  if (activeTabId === id) {
+    activateTab(tabs[Math.min(idx, tabs.length - 1)].id);
+  }
+  renderTabBar();
+}
+
+function renameTab(id) {
+  const tab = tabs.find(t => t.id === id);
+  if (!tab) return;
+  const name = prompt('Tab name:', tab.name);
+  if (name && name.trim()) { tab.name = name.trim(); renderTabBar(); }
+}
+
+function renderTabBar() {
+  const bar = document.getElementById('tab-bar');
+  bar.innerHTML = '';
+  tabs.forEach(tab => {
+    const div = document.createElement('div');
+    div.className = 'tab' + (tab.id === activeTabId ? ' active' : '');
+    div.innerHTML = `<span ondblclick="renameTab(${tab.id})" title="Double-click to rename">${esc(tab.name)}</span>
+      <span class="close-btn" onclick="event.stopPropagation();closeTab(${tab.id})">×</span>`;
+    div.onclick = () => activateTab(tab.id);
+    bar.appendChild(div);
+  });
+  // + button
+  const add = document.createElement('div');
+  add.style.cssText = 'padding:6px 10px;cursor:pointer;color:#6c7086;font-size:18px;line-height:1;align-self:center;';
+  add.title = 'New tab (Ctrl+T)';
+  add.textContent = '+';
+  add.onclick = () => newTab();
+  add.onmouseenter = () => add.style.color = '#cdd6f4';
+  add.onmouseleave = () => add.style.color = '#6c7086';
+  bar.appendChild(add);
+}
+
+/* =========================================================================
+   CONNECT
+   ========================================================================= */
+function openConnectDialog() {
+  pendingFileBuffer = null;
+  document.getElementById('file-label').textContent = 'Choose .db file…';
+  document.getElementById('connect-dialog').style.display = 'flex';
+  onDBTypeChange();
+}
+function closeConnectDialog() { document.getElementById('connect-dialog').style.display = 'none'; }
+
+function onDBTypeChange() {
+  const t = document.getElementById('db-type').value;
+  document.getElementById('file-row').style.display = t === 'sqlite_file' ? '' : 'none';
+  document.getElementById('conn-note').style.display = '';
+}
+
+function onFileChosen(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  document.getElementById('file-label').textContent = file.name;
+  const reader = new FileReader();
+  reader.onload = ev => { pendingFileBuffer = ev.target.result; };
+  reader.readAsArrayBuffer(file);
+}
+
+async function doConnect() {
+  if (!SQL) { notify('sql.js not yet loaded, please wait…', 'error'); return; }
+  const type = document.getElementById('db-type').value;
+  if (type === 'sqlite_memory') {
+    if (db) db.close();
+    db = new SQL.Database();
+    connectedDBName = 'in-memory';
+  } else if (type === 'sqlite_file') {
+    if (!pendingFileBuffer) { notify('Please choose a .db file first', 'error'); return; }
+    if (db) db.close();
+    db = new SQL.Database(new Uint8Array(pendingFileBuffer));
+    connectedDBName = document.getElementById('file-label').textContent;
+  }
+  closeConnectDialog();
+  onConnected();
+}
+
+async function openDBFile(e) {
+  if (!SQL) { notify('sql.js not yet loaded, please wait…', 'error'); return; }
+  const file = e.target.files[0];
+  if (!file) return;
+  const buf = await file.arrayBuffer();
+  if (db) db.close();
+  db = new SQL.Database(new Uint8Array(buf));
+  connectedDBName = file.name;
+  onConnected();
+}
+
+function onConnected() {
+  document.getElementById('conn-label').textContent = connectedDBName;
+  document.getElementById('sb-conn').innerHTML = `⬤ <span style="color:#a6e3a1">Connected</span>: ${esc(connectedDBName)}`;
+  refreshSchema();
+  notify(`Connected to "${connectedDBName}"`, 'success');
+}
+
+/* =========================================================================
+   SAMPLE DATABASE
+   ========================================================================= */
+function loadSampleDB() {
+  if (!SQL) { notify('sql.js not yet loaded, please wait…', 'error'); return; }
+  if (db) db.close();
+  db = new SQL.Database();
+  db.run(`
+    CREATE TABLE employees (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      department TEXT NOT NULL,
+      salary REAL NOT NULL,
+      hire_date TEXT NOT NULL
+    );
+    INSERT INTO employees(name,department,salary,hire_date) VALUES
+      ('Alice Johnson','Engineering',95000,'2019-03-12'),
+      ('Bob Smith','Marketing',72000,'2020-07-01'),
+      ('Carol White','Engineering',102000,'2018-01-15'),
+      ('David Brown','HR',65000,'2021-05-20'),
+      ('Eva Martinez','Engineering',88000,'2022-02-28'),
+      ('Frank Lee','Marketing',75000,'2019-11-03'),
+      ('Grace Kim','Finance',90000,'2020-08-14'),
+      ('Henry Wilson','HR',60000,'2023-01-10'),
+      ('Irene Taylor','Finance',95000,'2017-06-30'),
+      ('Jack Davis','Engineering',110000,'2016-04-05');
+
+    CREATE TABLE departments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      budget REAL NOT NULL,
+      manager TEXT
+    );
+    INSERT INTO departments(name,budget,manager) VALUES
+      ('Engineering',500000,'Carol White'),
+      ('Marketing',200000,'Bob Smith'),
+      ('HR',150000,'David Brown'),
+      ('Finance',300000,'Irene Taylor');
+
+    CREATE TABLE projects (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      department TEXT NOT NULL,
+      status TEXT DEFAULT 'active',
+      start_date TEXT,
+      end_date TEXT
+    );
+    INSERT INTO projects(title,department,status,start_date,end_date) VALUES
+      ('Website Redesign','Marketing','active','2024-01-01',NULL),
+      ('Database Migration','Engineering','completed','2023-06-01','2023-12-31'),
+      ('HR Portal','HR','active','2024-02-15',NULL),
+      ('Budget Analysis','Finance','active','2024-03-01',NULL),
+      ('API Refactor','Engineering','active','2024-01-20',NULL);
+  `);
+  connectedDBName = 'sample.db';
+  onConnected();
+
+  // Insert a starter query
+  const tab = tabs.find(t => t.id === activeTabId);
+  if (tab) {
+    tab.model.setValue(
+`-- Sample queries to get you started:
+
+-- List all employees
+SELECT * FROM employees ORDER BY name;
+
+-- Department summary
+SELECT department, COUNT(*) AS headcount, AVG(salary) AS avg_salary
+FROM employees
+GROUP BY department
+ORDER BY avg_salary DESC;
+
+-- Join employees with departments
+SELECT e.name, e.salary, d.budget
+FROM employees e
+JOIN departments d ON e.department = d.name
+ORDER BY e.salary DESC;`
+    );
+  }
+}
+
+/* =========================================================================
+   QUERY EXECUTION
+   ========================================================================= */
+function runQuery() {
+  if (!db) { notify('No database connected. Click Connect or Sample DB.', 'error'); return; }
+  const sql = getSelectedOrAll();
+  if (!sql.trim()) { notify('Nothing to execute', 'info'); return; }
+
+  const btn = document.getElementById('run-btn');
+  btn.innerHTML = '<span class="spinner"></span>';
+  btn.disabled = true;
+
+  setTimeout(() => {
+    const t0 = performance.now();
+    try {
+      const stmts = sql.split(';').map(s => s.trim()).filter(Boolean);
+      let allResults = [];
+
+      for (const stmt of stmts) {
+        const res = db.exec(stmt);
+        if (res && res.length > 0) {
+          allResults = allResults.concat(res);
+        }
+      }
+
+      const elapsed = (performance.now() - t0).toFixed(1);
+      history.unshift({ sql: sql.trim(), ts: new Date().toLocaleTimeString(), duration: elapsed });
+      if (history.length > 200) history.pop();
+      renderHistory();
+
+      if (allResults.length === 0) {
+        // DDL/DML — no result rows
+        showMessage(`✓ Executed successfully in ${elapsed}ms`, 'success');
+        refreshSchema();
+      } else {
+        const last = allResults[allResults.length - 1];
+        lastColumns = last.columns;
+        lastRows = last.values;
+        filteredRows = [...lastRows];
+        sortCol = -1; sortDir = 1;
+        filterText = '';
+        document.getElementById('result-filter').value = '';
+        currentPage = 0;
+        renderResults();
+        document.getElementById('sb-time').textContent = `${elapsed}ms`;
+        document.getElementById('sb-rows').textContent = `${filteredRows.length} rows`;
+        document.getElementById('result-meta').textContent =
+          `${filteredRows.length} row${filteredRows.length !== 1 ? 's' : ''} · ${lastColumns.length} column${lastColumns.length !== 1 ? 's' : ''} · ${elapsed}ms`;
+      }
+    } catch (err) {
+      showError(err.message);
+    }
+    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg> Run';
+    btn.disabled = false;
+  }, 0);
+}
+
+function getSelectedOrAll() {
+  if (!monacoEditor) return '';
+  const sel = monacoEditor.getSelection();
+  const selectedText = monacoEditor.getModel().getValueInRange(sel);
+  return selectedText.trim() ? selectedText : monacoEditor.getValue();
+}
+
+/* =========================================================================
+   RESULTS RENDERING
+   ========================================================================= */
+function renderResults() {
+  const container = document.getElementById('result-content');
+  if (!filteredRows.length) {
+    container.innerHTML = '<div style="color:#6c7086;font-size:13px;padding:20px;">No results.</div>';
+    document.getElementById('page-info').textContent = '';
+    return;
+  }
+
+  const totalPages = Math.ceil(filteredRows.length / PAGE_SIZE);
+  const start = currentPage * PAGE_SIZE;
+  const pageRows = filteredRows.slice(start, start + PAGE_SIZE);
+
+  let html = '<table class="result-table"><thead><tr>';
+  lastColumns.forEach((col, i) => {
+    const arrow = sortCol === i ? (sortDir === 1 ? ' ▲' : ' ▼') : '';
+    html += `<th onclick="sortBy(${i})" title="Click to sort">${esc(col)}${arrow}</th>`;
+  });
+  html += '</tr></thead><tbody>';
+  pageRows.forEach(row => {
+    html += '<tr>' + row.map(cell => {
+      const v = cell === null ? '<span style="color:#6c7086;font-style:italic;">NULL</span>' : esc(String(cell));
+      return `<td title="${cell === null ? 'NULL' : esc(String(cell))}">${v}</td>`;
+    }).join('') + '</tr>';
+  });
+  html += '</tbody></table>';
+  container.innerHTML = html;
+  document.getElementById('page-info').textContent = `Page ${currentPage + 1} / ${totalPages}`;
+}
+
+function sortBy(colIdx) {
+  if (sortCol === colIdx) sortDir *= -1;
+  else { sortCol = colIdx; sortDir = 1; }
+  filteredRows.sort((a, b) => {
+    const av = a[colIdx], bv = b[colIdx];
+    if (av === null) return 1; if (bv === null) return -1;
+    const an = Number(av), bn = Number(bv);
+    if (!isNaN(an) && !isNaN(bn)) return (an - bn) * sortDir;
+    return String(av).localeCompare(String(bv)) * sortDir;
+  });
+  currentPage = 0;
+  renderResults();
+}
+
+function filterResults(text) {
+  filterText = text.toLowerCase();
+  filteredRows = lastRows.filter(row =>
+    row.some(cell => cell !== null && String(cell).toLowerCase().includes(filterText))
+  );
+  currentPage = 0;
+  renderResults();
+  document.getElementById('sb-rows').textContent = `${filteredRows.length} rows`;
+  document.getElementById('result-meta').textContent =
+    `${filteredRows.length} row${filteredRows.length !== 1 ? 's' : ''} · ${lastColumns.length} col${lastColumns.length !== 1 ? 's' : ''}` +
+    (filterText ? ` (filtered)` : '');
+}
+
+function prevPage() { if (currentPage > 0) { currentPage--; renderResults(); } }
+function nextPage() {
+  if ((currentPage + 1) * PAGE_SIZE < filteredRows.length) { currentPage++; renderResults(); }
+}
+
+function showMessage(msg, type) {
+  const c = document.getElementById('result-content');
+  const color = type === 'success' ? '#a6e3a1' : '#f38ba8';
+  c.innerHTML = `<div style="padding:20px;color:${color};font-size:13px;">${esc(msg)}</div>`;
+  document.getElementById('result-meta').textContent = msg;
+}
+
+function showError(msg) {
+  showMessage('✗ Error: ' + msg, 'error');
+  notify('Error: ' + msg, 'error', 6000);
+}
+
+/* =========================================================================
+   SCHEMA EXPLORER
+   ========================================================================= */
+function getTableNames() {
+  if (!db) return [];
+  try {
+    const res = db.exec("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name");
+    return res[0] ? res[0].values.map(r => r[0]) : [];
+  } catch { return []; }
+}
+
+function getAllColumnNames() {
+  const tables = getTableNames();
+  const cols = new Set();
+  tables.forEach(t => {
+    try {
+      const res = db.exec(`PRAGMA table_info("${t}")`);
+      if (res[0]) res[0].values.forEach(r => cols.add(r[1]));
+    } catch {}
+  });
+  return [...cols];
+}
+
+function refreshSchema() {
+  const filter = document.getElementById('schema-filter').value.toLowerCase();
+  filterSchema(filter);
+}
+
+function filterSchema(filter) {
+  const tree = document.getElementById('schema-tree');
+  if (!db) {
+    tree.innerHTML = '<div style="color:#6c7086;font-size:13px;padding:12px 8px;text-align:center;">No database connected.</div>';
+    return;
+  }
+  const tables = getTableNames().filter(t => !filter || t.toLowerCase().includes(filter));
+  if (!tables.length) {
+    tree.innerHTML = '<div style="color:#6c7086;font-size:13px;padding:12px 8px;">No tables found.</div>';
+    return;
+  }
+
+  tree.innerHTML = tables.map(t => `
+    <div class="schema-item" id="schema-${t}" onclick="toggleTable('${t}')">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#89b4fa" stroke-width="2">
+        <rect x="3" y="3" width="18" height="18" rx="2"/>
+        <line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/>
+        <line x1="9" y1="9" x2="9" y2="21"/>
+      </svg>
+      <span style="color:#cdd6f4;flex:1;">${esc(t)}</span>
+      <span class="schema-arrow" style="color:#6c7086;font-size:11px;">▶</span>
+    </div>
+    <div id="cols-${t}" style="display:none; padding-left:22px;"></div>
+  `).join('');
+}
+
+function toggleTable(t) {
+  const colDiv = document.getElementById(`cols-${t}`);
+  const item = document.getElementById(`schema-${t}`);
+  const arrow = item.querySelector('.schema-arrow');
+  if (colDiv.style.display === 'none') {
+    // Load columns
+    try {
+      const res = db.exec(`PRAGMA table_info("${t}")`);
+      const cols = res[0] ? res[0].values : [];
+      colDiv.innerHTML = cols.map(c => {
+        const isPK = c[5] > 0;
+        return `<div class="schema-item" style="font-size:12px;" onclick="insertTableName('${t}','${c[1]}')" title="Click to insert column name">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="${isPK ? '#f9e2af' : '#6c7086'}" stroke-width="2">
+            <circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/>
+          </svg>
+          <span style="color:${isPK ? '#f9e2af' : '#cdd6f4'};">${esc(c[1])}</span>
+          <span style="color:#6c7086;font-size:11px;margin-left:auto;">${esc(c[2] || '—')}</span>
+        </div>`;
+      }).join('');
+      // Row count
+      const cnt = db.exec(`SELECT COUNT(*) FROM "${t}"`);
+      const n = cnt[0] ? cnt[0].values[0][0] : 0;
+      colDiv.innerHTML = `<div style="font-size:11px;color:#6c7086;padding:3px 8px;">${n} rows</div>` + colDiv.innerHTML;
+    } catch (e) {
+      colDiv.innerHTML = `<div style="color:#f38ba8;font-size:12px;padding:4px 8px;">${esc(e.message)}</div>`;
+    }
+    colDiv.style.display = '';
+    item.classList.add('active');
+    arrow.textContent = '▼';
+  } else {
+    colDiv.style.display = 'none';
+    item.classList.remove('active');
+    arrow.textContent = '▶';
+  }
+}
+
+function insertTableName(table, col) {
+  if (!monacoEditor) return;
+  monacoEditor.trigger('keyboard', 'type', { text: col });
+  monacoEditor.focus();
+}
+
+/* =========================================================================
+   QUERY HISTORY
+   ========================================================================= */
+function toggleHistory() {
+  historyOpen = !historyOpen;
+  document.getElementById('history-panel').style.width = historyOpen ? '280px' : '0';
+  renderHistory();
+}
+
+function renderHistory() {
+  if (!historyOpen) return;
+  const list = document.getElementById('history-list');
+  if (!history.length) {
+    list.innerHTML = '<div style="color:#6c7086;font-size:13px;padding:12px;">No history yet.</div>';
+    return;
+  }
+  list.innerHTML = history.map((h, i) => `
+    <div style="margin-bottom:8px;border:1px solid #45475a;border-radius:6px;overflow:hidden;">
+      <div style="padding:6px 10px;background:#313244;display:flex;align-items:center;gap:6px;font-size:11px;color:#6c7086;">
+        <span style="flex:1;">${esc(h.ts)}</span>
+        <span>${esc(h.duration)}ms</span>
+        <button onclick="rerunHistory(${i})" title="Re-run" style="background:#89b4fa;color:#1e1e2e;border:none;border-radius:4px;padding:1px 7px;font-size:11px;cursor:pointer;">▶</button>
+        <button onclick="copyToEditor(${i})" title="Copy to editor" style="background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:4px;padding:1px 7px;font-size:11px;cursor:pointer;">⇒</button>
+      </div>
+      <pre style="margin:0;padding:8px 10px;font-size:12px;color:#cdd6f4;white-space:pre-wrap;word-break:break-all;max-height:80px;overflow:hidden;">${esc(h.sql)}</pre>
+    </div>
+  `).join('');
+}
+
+function rerunHistory(i) {
+  const h = history[i];
+  if (!monacoEditor) return;
+  monacoEditor.setValue(h.sql);
+  runQuery();
+}
+
+function copyToEditor(i) {
+  if (!monacoEditor) return;
+  monacoEditor.setValue(history[i].sql);
+  monacoEditor.focus();
+}
+
+/* =========================================================================
+   EXPORT
+   ========================================================================= */
+function exportCSV() {
+  if (!lastColumns.length) { notify('No results to export', 'error'); return; }
+  const rows = [lastColumns, ...filteredRows];
+  const csv = rows.map(r => r.map(cell => {
+    const s = cell === null ? '' : String(cell);
+    return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g,'""')}"` : s;
+  }).join(',')).join('\n');
+  download('results.csv', csv, 'text/csv');
+  notify('Exported as results.csv', 'success');
+}
+
+function exportJSON() {
+  if (!lastColumns.length) { notify('No results to export', 'error'); return; }
+  const data = filteredRows.map(row => {
+    const obj = {};
+    lastColumns.forEach((col, i) => obj[col] = row[i]);
+    return obj;
+  });
+  download('results.json', JSON.stringify(data, null, 2), 'application/json');
+  notify('Exported as results.json', 'success');
+}
+
+function download(filename, content, mime) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([content], { type: mime }));
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function copyResults() {
+  if (!lastColumns.length) { notify('No results to copy', 'error'); return; }
+  const rows = [lastColumns, ...filteredRows];
+  const text = rows.map(r => r.map(c => c === null ? 'NULL' : String(c)).join('\t')).join('\n');
+  navigator.clipboard.writeText(text).then(() => notify('Copied to clipboard', 'success'));
+}
+
+/* =========================================================================
+   RESIZER (editor / results split)
+   ========================================================================= */
+(function () {
+  const resizer = document.getElementById('resizer');
+  let dragging = false, startY = 0, startH = 0;
+
+  resizer.addEventListener('mousedown', e => {
+    dragging = true;
+    startY = e.clientY;
+    startH = document.getElementById('results-panel').offsetHeight;
+    resizer.classList.add('dragging');
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'row-resize';
+  });
+  document.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    const delta = startY - e.clientY;
+    const newH = Math.max(80, Math.min(window.innerHeight - 200, startH + delta));
+    document.getElementById('results-panel').style.height = newH + 'px';
+    if (monacoEditor) monacoEditor.layout();
+  });
+  document.addEventListener('mouseup', () => {
+    if (dragging) {
+      dragging = false;
+      resizer.classList.remove('dragging');
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+    }
+  });
+})();
+
+/* =========================================================================
+   SIDEBAR RESIZER
+   ========================================================================= */
+(function () {
+  const resizer = document.getElementById('sidebar-resizer');
+  const sidebar = document.getElementById('sidebar');
+  let dragging = false, startX = 0, startW = 0;
+
+  resizer.addEventListener('mousedown', e => {
+    dragging = true;
+    startX = e.clientX;
+    startW = sidebar.offsetWidth;
+    resizer.classList.add('dragging');
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'col-resize';
+  });
+  document.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    const newW = Math.max(120, Math.min(480, startW + (e.clientX - startX)));
+    sidebar.style.width = newW + 'px';
+    if (monacoEditor) monacoEditor.layout();
+  });
+  document.addEventListener('mouseup', () => {
+    if (dragging) {
+      dragging = false;
+      resizer.classList.remove('dragging');
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+    }
+  });
+})();
+
+/* =========================================================================
+   KEYBOARD SHORTCUTS (global)
+   ========================================================================= */
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); runQuery(); }
+});
+
+/* =========================================================================
+   NOTIFICATIONS
+   ========================================================================= */
+function notify(msg, type = 'info', duration = 3500) {
+  const el = document.createElement('div');
+  el.className = `notif-msg ${type}`;
+  el.textContent = msg;
+  const container = document.getElementById('notif');
+  container.appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .3s'; setTimeout(() => el.remove(), 350); }, duration);
+}
+
+/* =========================================================================
+   UTILS
+   ========================================================================= */
+function esc(str) {
+  return String(str)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+/* =========================================================================
+   BOOT
+   ========================================================================= */
+initSQLjs();
+initMonaco();
+</script>
+</body>
+</html>
