@@ -310,7 +310,6 @@
 <!-- ============================================================ SCRIPTS ============================================================ -->
 <!-- sql.js (SQLite via WebAssembly) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/sql-wasm.js"
-  integrity="sha512-UBCBHDRxz4q7uKbFBqKxCiJQAiByZS4UxWBjREhUgPYn4RbAHvCpXSC3lxNKcGlmEXWEVLNHHBHWoVkfFZPQ=="
   crossorigin="anonymous"></script>
 <!-- Monaco Editor loader -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.47.0/min/vs/loader.min.js"
@@ -660,15 +659,9 @@ function runQuery() {
   setTimeout(() => {
     const t0 = performance.now();
     try {
-      const stmts = sql.split(';').map(s => s.trim()).filter(Boolean);
-      let allResults = [];
-
-      for (const stmt of stmts) {
-        const res = db.exec(stmt);
-        if (res && res.length > 0) {
-          allResults = allResults.concat(res);
-        }
-      }
+      // db.exec() natively handles multiple statements in one string,
+      // avoiding the pitfalls of naive semicolon-splitting.
+      const allResults = db.exec(sql);
 
       const elapsed = (performance.now() - t0).toFixed(1);
       history.unshift({ sql: sql.trim(), ts: new Date().toLocaleTimeString(), duration: elapsed });
@@ -801,7 +794,7 @@ function getAllColumnNames() {
   const cols = new Set();
   tables.forEach(t => {
     try {
-      const res = db.exec(`PRAGMA table_info("${t}")`);
+      const res = db.exec(`PRAGMA table_info("${t.replace(/"/g, '""')}")`);
       if (res[0]) res[0].values.forEach(r => cols.add(r[1]));
     } catch {}
   });
@@ -846,7 +839,7 @@ function toggleTable(t) {
   if (colDiv.style.display === 'none') {
     // Load columns
     try {
-      const res = db.exec(`PRAGMA table_info("${t}")`);
+      const res = db.exec(`PRAGMA table_info("${t.replace(/"/g, '""')}")`);
       const cols = res[0] ? res[0].values : [];
       colDiv.innerHTML = cols.map(c => {
         const isPK = c[5] > 0;
@@ -859,7 +852,7 @@ function toggleTable(t) {
         </div>`;
       }).join('');
       // Row count
-      const cnt = db.exec(`SELECT COUNT(*) FROM "${t}"`);
+      const cnt = db.exec(`SELECT COUNT(*) FROM "${t.replace(/"/g, '""')}"`);
       const n = cnt[0] ? cnt[0].values[0][0] : 0;
       colDiv.innerHTML = `<div style="font-size:11px;color:#6c7086;padding:3px 8px;">${n} rows</div>` + colDiv.innerHTML;
     } catch (e) {
@@ -931,7 +924,7 @@ function exportCSV() {
   const rows = [lastColumns, ...filteredRows];
   const csv = rows.map(r => r.map(cell => {
     const s = cell === null ? '' : String(cell);
-    return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g,'""')}"` : s;
+    return s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r') ? `"${s.replace(/"/g,'""')}"` : s;
   }).join(',')).join('\n');
   download('results.csv', csv, 'text/csv');
   notify('Exported as results.csv', 'success');
